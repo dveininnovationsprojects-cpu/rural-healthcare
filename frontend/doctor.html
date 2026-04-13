@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title> Enterprise Physician Workstation v48.0</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@500;800&display=swap" rel="stylesheet">
+
+    <style>
+        :root { --brand-primary: #0052cc; --brand-dark: #091e42; --brand-critical: #de350b; --bg-clinical: #f4f5f7; }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg-clinical); color: var(--brand-dark); overflow-x: hidden; -webkit-tap-highlight-color: transparent;}
+
+        /* RESPONSIVE ARCHITECTURE */
+        .nav-rail { background: #0747a6; width: 100%; height: 65px; position: fixed; bottom: 0; display: flex; flex-direction: row; justify-content: space-around; align-items: center; padding: 0; z-index: 5000; box-shadow: 0 -4px 15px rgba(0,0,0,0.15); }
+        @media (min-width: 768px) {
+            .nav-rail { width: 75px; height: 100vh; bottom: auto; top: 0; flex-direction: column; justify-content: flex-start; padding: 24px 0; box-shadow: 4px 0 20px rgba(0,0,0,0.15); }
+        }
+
+        .triage-sidebar { background: #ffffff; border-right: 1px solid #dfe1e6; width: 100%; height: calc(100vh - 65px); position: fixed; z-index: 4000; display: flex; flex-direction: column; transition: transform 0.3s ease; }
+        @media (min-width: 768px) {
+            .triage-sidebar { width: 340px; margin-left: 75px; height: 100vh; transform: translateX(0) !important; }
+        }
+        
+        .workspace { margin-left: 0; margin-bottom: 65px; padding: 20px; height: calc(100vh - 65px); overflow-y: auto; display: none; background: #fafbfc; }
+        @media (min-width: 768px) {
+            .workspace { margin-left: 415px; margin-bottom: 0; padding: 45px; height: 100vh; }
+        }
+        
+        .workspace-active { display: block; animation: contentFade 0.4s ease-out forwards; }
+        @keyframes contentFade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* CARDS & METRICS */
+        .clinical-card { background: white; border: 1px solid #dfe1e6; border-radius: 8px; box-shadow: 0 4px 12px rgba(9,30,66,0.04); transition: all 0.3s ease; }
+        .clinical-card:hover { box-shadow: 0 8px 24px rgba(9,30,66,0.08); }
+        
+        .triage-card { padding: 18px 24px; border-bottom: 1px solid #f4f5f7; cursor: pointer; border-left: 5px solid transparent; transition: 0.2s; }
+        .triage-card:hover { background: #f8fafc; padding-left: 30px; }
+        .triage-card.active { background: #ebf2ff; border-left-color: var(--brand-primary); }
+        
+        .critical-node { background: #ffebe6 !important; border-left-color: var(--brand-critical) !important; animation: vitalPulse 1.5s infinite; }
+        @keyframes vitalPulse { 0%, 100% { background: #ffebe6; } 50% { background: #ffd9d1; } }
+
+        .vital-value { font-size: 42px; font-weight: 800; letter-spacing: -2px; font-family: 'JetBrains Mono', monospace; line-height: 1; color: var(--brand-dark); }
+        @media (min-width: 768px) { .vital-value { font-size: 56px; letter-spacing: -3px; } }
+        
+        .label-caps { font-size: 10px; font-weight: 800; color: #6b778c; text-transform: uppercase; letter-spacing: 0.15em; }
+        @media (min-width: 768px) { .label-caps { font-size: 11px; } }
+
+        /* COMPONENTS */
+        .nav-icon { width: 44px; height: 44px; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #deebff; transition: 0.3s; margin-bottom: 0; }
+        @media (min-width: 768px) { .nav-icon { width: 48px; height: 48px; border-radius: 10px; margin-bottom: 16px; } }
+        .nav-icon:hover { background: rgba(255,255,255,0.15); color: white; transform: scale(1.05); }
+        .nav-icon.active { background: white; color: var(--brand-primary); box-shadow: 0 6px 16px rgba(0,0,0,0.2); }
+
+        #call-toast { transform: translateX(120%); transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1); z-index: 7000; }
+        #call-toast.show { transform: translateX(0); }
+
+        #emergency-overlay { background: rgba(9, 30, 66, 0.98); z-index: 6000; backdrop-filter: blur(15px); }
+        .video-box { width: 100%; max-width: 1100px; background: #000; border: 4px solid var(--brand-primary); border-radius: 16px; overflow: hidden; position: relative; box-shadow: 0 40px 80px rgba(0,0,0,0.6); }
+        #cam-view { width: 100%; height: 100%; display: flex; background: #111; flex-direction: column; justify-content: center; align-items: center; }
+        @media (min-width: 768px) { #cam-view { flex-direction: row; } }
+        #cam-view video { width: 100%; height: 100%; object-fit: cover; border-bottom: 2px solid #333; transform: scaleX(-1); }
+        @media (min-width: 768px) { #cam-view video { width: 100%; height: 100%; border-bottom: none; border-right: 2px solid #333; } }
+        
+        .ringing-pulse { animation: ring 1.5s infinite; }
+        @keyframes ring { 0% { transform: scale(0.95); opacity: 0.5; } 50% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(0.95); opacity: 0.5; } }
+
+        /* CHAT SYSTEM */
+        .chat-bubble { padding: 14px 18px; border-radius: 14px; font-size: 13px; margin-bottom: 12px; max-width: 85%; font-weight: 500; line-height: 1.5; box-shadow: 0 2px 5px rgba(0,0,0,0.05); position: relative; }
+        .msg-doc { background: var(--brand-primary); color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
+        .msg-pat { background: white; color: var(--brand-dark); align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid #dfe1e6; }
+        .msg-meta { display: block; font-size: 9px; opacity: 0.7; margin-top: 6px; text-align: right; font-weight: 800; }
+        .msg-sender { display: block; font-size: 10px; font-weight: 800; opacity: 0.9; margin-bottom: 4px; text-transform: uppercase; }
+
+        /* TABLES */
+        .clinical-table { width: 100%; font-size: 12px; text-align: left; border-collapse: collapse; }
+        .clinical-table th { background: #f4f5f7; padding: 12px; color: #6b778c; font-weight: 800; text-transform: uppercase; font-size: 9px; letter-spacing: 1px; border-bottom: 2px solid #dfe1e6; }
+        .clinical-table td { padding: 12px; border-bottom: 1px solid #dfe1e6; font-weight: 600; }
+        @media (min-width: 768px) {
+            .clinical-table { font-size: 13px; }
+            .clinical-table th, .clinical-table td { padding: 18px; font-size: 11px;}
+        }
+
+        /* 🔥 HISTORY RECORD TABLE 🔥 */
+        .history-record-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; }
+        .history-record-table th { background-color: #f8fafc; padding: 12px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.1em; font-size: 10px; border-bottom: 2px solid #e2e8f0; }
+        .history-record-table td { padding: 12px; border-bottom: 1px solid #f1f5f9; font-weight: 500; color: #334155; }
+        .history-record-table tr:hover { background-color: #f8fafc; cursor: pointer;}
+
+        ::-webkit-scrollbar { width: 6px; }
+        @media (min-width: 768px) { ::-webkit-scrollbar { width: 8px; } }
+        ::-webkit-scrollbar-thumb { background: #c1c7d0; border-radius: 10px; border: 2px solid white; }
+    </style>
+</head>
+<body>
+
+    <div class="nav-rail">
+        <div class="hidden md:flex bg-white/20 p-3 rounded-xl mb-10"><i data-lucide="activity" class="text-white w-7 h-7"></i></div>
+        
+        <div class="nav-icon md:hidden" onclick="toggleMobileSidebar()"><i data-lucide="list"></i></div>
+        
+        <div class="nav-icon active" onclick="switchTab('dashboard', this)"><i data-lucide="layout-dashboard" class="w-6 h-6"></i></div>
+        <div class="nav-icon" onclick="switchTab('directory', this)"><i data-lucide="users" class="w-6 h-6"></i></div>
+        <div class="nav-icon" id="nav-history-icon" onclick="switchTab('history', this)"><i data-lucide="file-clock" class="w-6 h-6"></i></div>
+        <div class="nav-icon" onclick="switchTab('incidents', this)"><i data-lucide="alert-triangle" class="w-6 h-6"></i></div>
+        
+        <div class="hidden md:flex mt-auto nav-icon"><i data-lucide="settings" class="w-6 h-6"></i></div>
+    </div>
+
+    <div id="call-toast" class="fixed bottom-24 right-4 md:bottom-10 md:right-10 w-[calc(100%-2rem)] md:w-96 bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] border-l-8 border-blue-600 p-6 flex flex-col z-[7000]">
+        <div class="flex items-center gap-4 mb-5">
+            <div class="bg-blue-100 text-blue-600 p-4 rounded-full animate-pulse flex-shrink-0">
+                <i data-lucide="video" class="w-6 h-6"></i>
+            </div>
+            <div class="overflow-hidden">
+                <h3 class="font-black text-slate-800 text-lg uppercase tracking-tight leading-tight">Incoming Link</h3>
+                <p class="text-slate-500 font-bold text-xs mt-1 truncate">Patient Node <span id="inc-call-id" class="text-blue-600"></span></p>
+            </div>
+        </div>
+        <div class="flex gap-3">
+            <button onclick="rejectCall()" class="flex-1 border-2 border-red-100 text-red-600 py-3 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-red-50 transition active:scale-95">Decline</button>
+            <button onclick="acceptCall()" class="flex-1 bg-green-600 text-white py-3 rounded-xl font-black uppercase tracking-widest text-xs shadow-lg hover:bg-green-700 animate-pulse transition active:scale-95">Answer</button>
+        </div>
+    </div>
+
+    <div class="triage-sidebar shadow-xl transform -translate-x-full md:translate-x-0" id="mobile-sidebar">
+        <div class="p-6 md:p-8 border-b bg-white">
+            <div class="flex justify-between items-center mb-6 md:mb-8">
+                <h2 class="font-black text-sm uppercase tracking-[0.2em] text-slate-700">Global Triage</h2>
+                <div class="flex gap-2">
+                    <button onclick="document.getElementById('onboardModal').classList.remove('hidden')" class="bg-blue-50 text-blue-700 p-2.5 rounded-lg hover:bg-blue-100 transition shadow-sm"><i data-lucide="user-plus" class="w-5 h-5"></i></button>
+                    <button onclick="toggleMobileSidebar()" class="md:hidden bg-slate-100 text-slate-600 p-2.5 rounded-lg active:bg-slate-200"><i data-lucide="x" class="w-5 h-5"></i></button>
+                </div>
+            </div>
+            <div class="relative">
+                <i data-lucide="search" class="w-4 h-4 absolute left-4 top-4 text-slate-400"></i>
+                <input type="text" id="triage-search" onkeyup="filterQueue()" placeholder="Filter Node ID..." class="w-full bg-slate-50 border-2 border-slate-200 rounded-lg p-3.5 pl-12 text-xs font-bold outline-none focus:border-blue-600 transition shadow-inner">
+            </div>
+        </div>
+        
+        <div id="patient-queue" class="flex-1 overflow-y-auto divide-y divide-slate-100 pb-20 md:pb-0">
+            <div class="p-10 text-center text-slate-400 font-bold text-xs animate-pulse">Syncing Enterprise Nodes...</div>
+        </div>
+
+        <div class="hidden md:flex p-8 border-t bg-slate-50 items-center gap-5 shadow-[0_-4px_10px_rgba(0,0,0,0.02)]">
+            <div class="w-12 h-12 rounded-full bg-blue-700 text-white flex items-center justify-center text-sm font-black shadow-lg">PM</div>
+            <div>
+                <p class="text-sm font-black text-slate-800" id="dr-name-display">Dr. Peer Mohammed</p>
+                <p class="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-1">Command Access</p>
+            </div>
+        </div>
+    </div>
+
+    <main id="ws-dashboard" class="workspace workspace-active">
+        <div class="max-w-7xl mx-auto space-y-6 md:space-y-10">
+            
+            <header class="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6 border-b pb-6 md:pb-10 border-slate-200">
+                <div class="space-y-3 w-full">
+                    <div class="flex items-center gap-3 md:gap-4">
+                        <span id="p-status-badge" class="bg-slate-100 text-slate-500 text-[10px] md:text-[11px] font-black px-3 md:px-4 py-1.5 rounded uppercase tracking-widest shadow-sm">Standby</span>
+                        <span class="text-slate-300">|</span>
+                        <span id="p-node-id" class="font-mono text-[10px] md:text-[12px] font-black text-slate-400 uppercase tracking-[0.2em]">WAITING_FOR_NODE</span>
+                    </div>
+                    <h1 class="text-4xl md:text-6xl font-black tracking-tighter text-slate-900 truncate" id="active-p-name">Select Node</h1>
+                    <p class="text-slate-500 font-bold text-xs md:text-sm uppercase tracking-widest truncate" id="active-p-meta">Awaiting Initialization</p>
+                </div>
+                <div class="flex flex-row w-full lg:w-auto gap-3 md:gap-4">
+                    <button class="flex-1 lg:flex-none bg-white border-2 border-slate-200 text-slate-700 px-4 md:px-8 py-3.5 md:py-4 text-[10px] md:text-xs font-black uppercase tracking-widest rounded-lg hover:bg-slate-50 transition shadow-sm" onclick="issueDigitalRx()" id="rx-btn">Issue Rx</button>
+                    <button onclick="initiateCall()" class="flex-1 lg:flex-none bg-blue-700 text-white px-4 md:px-10 py-3.5 md:py-4 text-[10px] md:text-xs font-black uppercase tracking-widest rounded-lg shadow-xl shadow-blue-200 hover:bg-blue-800 transition-all hover:-translate-y-1 whitespace-nowrap"><i data-lucide="video" class="w-3 h-3 md:w-4 md:h-4 inline-block mr-1 md:mr-2 -mt-1"></i> Video Call</button>
+                </div>
+            </header>
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-10">
+                <div class="col-span-1 lg:col-span-8 space-y-6 md:space-y-10">
+                    <div class="clinical-card p-6 md:p-12">
+                        <div class="flex justify-between items-center mb-6 md:mb-12 border-b border-slate-100 pb-4 md:pb-6">
+                            <span class="label-caps text-slate-800">Bio-Telemetry</span>
+                            <div class="flex items-center gap-2 md:gap-3 bg-slate-50 border border-slate-200 px-3 md:px-4 py-1 md:py-1.5 rounded-full shadow-inner">
+                                <span class="w-2 md:w-2.5 h-2 md:h-2.5 bg-green-500 rounded-full animate-ping"></span>
+                                <span class="text-[8px] md:text-[10px] font-black text-slate-600 uppercase tracking-widest">AES-256 Link</span>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-8 md:gap-14 text-center">
+                            <div class="space-y-3 md:space-y-5">
+                                <span class="label-caps block">Core Temp</span>
+                                <div class="flex items-baseline justify-center"><span id="v-temp" class="vital-value">--.-</span><span class="text-lg md:text-2xl font-bold text-slate-400 ml-1">°C</span></div>
+                                <div class="h-2 w-full bg-slate-100 rounded-full overflow-hidden shadow-inner"><div id="bar-temp" class="h-full bg-blue-600 transition-all duration-1000" style="width: 0%"></div></div>
+                            </div>
+                            <div class="space-y-3 md:space-y-5 sm:border-x border-slate-100 sm:px-4 md:px-8">
+                                <span class="label-caps block">Cardiac Rate</span>
+                                <div class="flex items-baseline justify-center"><span id="v-hr" class="vital-value text-red-600">--</span><span class="text-lg md:text-2xl font-bold text-red-300 ml-1">BPM</span></div>
+                                <div class="h-2 w-full bg-slate-100 rounded-full overflow-hidden shadow-inner"><div id="bar-hr" class="h-full bg-red-500 transition-all duration-1000" style="width: 0%"></div></div>
+                            </div>
+                            <div class="space-y-3 md:space-y-5">
+                                <span class="label-caps block">Impact Vector</span>
+                                <div class="flex items-baseline justify-center"><span id="v-accel" class="vital-value">-.--</span><span class="text-lg md:text-2xl font-bold text-slate-400 ml-1">G</span></div>
+                                <div class="h-2 w-full bg-slate-100 rounded-full overflow-hidden shadow-inner"><div id="bar-accel" class="h-full bg-slate-400 transition-all duration-1000" style="width: 0%"></div></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="clinical-card p-6 md:p-12 bg-slate-900 border-none h-[300px] md:h-[450px] shadow-2xl relative overflow-hidden">
+                        <div class="flex justify-between items-center mb-4 md:mb-8 relative z-10">
+                            <span class="label-caps text-slate-300">Neural Signature Trend</span>
+                            <span class="text-[8px] md:text-[10px] font-black text-blue-400 uppercase tracking-widest border border-blue-500/30 px-3 py-1 rounded bg-blue-900/20">LIVE STREAM</span>
+                        </div>
+                        <div class="absolute inset-0 top-16 md:top-20 p-4 md:p-8"><canvas id="clinicalChart"></canvas></div>
+                    </div>
+                </div>
+
+                <div class="col-span-1 lg:col-span-4 space-y-6 md:space-y-10">
+                    
+                    <div class="clinical-card p-6 md:p-10 border-l-[6px] md:border-t-[8px] md:border-l-0 border-purple-600">
+                        <div class="flex justify-between items-start mb-4">
+                            <h3 class="label-caps text-purple-700">AI Medical History</h3>
+                        </div>
+                        <p class="text-[10px] md:text-[12px] text-slate-500 font-medium mb-4 md:mb-6 leading-relaxed">Upload Medical History (.txt or .pdf) to auto-adjust AI alert thresholds.</p>
+                        
+                        <form id="upload-pdf-form" class="bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl p-6 md:p-8 text-center hover:border-purple-500 hover:bg-purple-50 transition group cursor-pointer relative overflow-hidden">
+                            <input type="file" id="pdf-file" class="absolute inset-0 opacity-0 cursor-pointer z-10" onchange="submitPDFReport()">
+                            <i data-lucide="file-up" class="mx-auto mb-2 md:mb-4 text-slate-400 w-6 h-6 md:w-10 md:h-10 group-hover:text-purple-600 transition transform group-hover:-translate-y-1"></i>
+                            <p class="text-[9px] md:text-[11px] font-black text-slate-600 uppercase tracking-widest group-hover:text-purple-700">Upload Record</p>
+                        </form>
+                        <div id="ai-status-box" class="hidden mt-4 md:mt-6 p-4 bg-purple-100 text-purple-800 rounded font-black text-[10px] uppercase tracking-widest flex items-center gap-3">
+                            <div class="w-3 h-3 border-2 border-purple-600 border-t-transparent rounded-full animate-spin"></div>
+                            Processing...
+                        </div>
+                    </div>
+
+                    <div class="clinical-card flex flex-col h-[400px] md:h-[520px] shadow-lg">
+                        <div class="p-4 md:p-6 bg-slate-50 border-b flex justify-between items-center">
+                            <span class="label-caps text-slate-800">Tele-Chat</span>
+                            <div class="flex items-center gap-2"><span class="w-2 h-2 bg-green-500 rounded-full"></span><span class="text-[9px] font-black text-slate-400 uppercase">Online</span></div>
+                        </div>
+                        <div id="chat-box" class="flex-1 p-4 md:p-6 overflow-y-auto flex flex-col bg-white border-b border-slate-100">
+                            <div class="text-center text-[10px] md:text-xs font-bold text-slate-300 my-auto uppercase tracking-widest">Select patient to begin</div>
+                        </div>
+                        <div class="p-4 md:p-6 bg-slate-50 flex gap-2 md:gap-3">
+                            <input type="text" id="chat-input" placeholder="Clinical note..." class="flex-1 text-[10px] md:text-sm outline-none font-semibold bg-white border border-slate-200 rounded-lg px-3 md:px-4 focus:border-blue-500 transition" onkeypress="if(event.key === 'Enter') sendChatMessage()">
+                            <button onclick="sendChatMessage()" class="bg-blue-600 text-white p-3 md:p-4 rounded-lg shadow-md hover:bg-blue-700 hover:shadow-lg transition transform hover:-translate-y-0.5"><i data-lucide="send" class="w-4 h-4 md:w-5 md:h-5"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <main id="ws-directory" class="workspace">
+        <div class="max-w-7xl mx-auto space-y-6 md:space-y-10">
+            <h1 class="text-3xl md:text-4xl font-black tracking-tighter uppercase text-slate-800">Enterprise Registry</h1>
+            <div class="clinical-card overflow-x-auto shadow-xl">
+                <table class="clinical-table min-w-max">
+                    <thead><tr><th>Status</th><th>Node ID</th><th>Identity</th><th>Age</th><th>Diagnosis</th></tr></thead>
+                    <tbody id="directory-body" class="divide-y divide-slate-100">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <main id="ws-history" class="workspace">
+        <div class="max-w-7xl mx-auto space-y-6 md:space-y-10">
+            <header class="flex flex-col border-b pb-6 border-slate-200">
+                <h1 class="text-3xl md:text-4xl font-black tracking-tighter uppercase text-slate-800">Patient Medical History</h1>
+                <p class="text-slate-500 font-bold text-xs md:text-sm uppercase tracking-widest mt-2">Node: <span id="history-p-name" class="text-blue-600">Select a Node</span></p>
+            </header>
+            
+            <div class="clinical-card p-6 md:p-12 bg-white shadow-xl flex flex-col gap-6">
+                <div class="flex justify-between items-center border-b pb-4">
+                    <h3 class="label-caps text-indigo-700">AI Decoded Health Records</h3>
+                    <span id="calib-status-badge" class="bg-slate-100 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">Uncalibrated</span>
+                </div>
+                
+                <div class="overflow-x-auto rounded-xl border border-slate-100">
+                    <table class="history-record-table min-w-max">
+                        <thead>
+                            <tr>
+                                <th>Date Uploaded</th>
+                                <th>Report Source</th>
+                                <th>Decoded Vitals (T / HR / BP / SpO2)</th>
+                                <th>AI Condition Status</th>
+                                <th>Monitoring Frequency</th>
+                                <th>Next Video Consult</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-record-tbody">
+                            <tr>
+                                <td colspan="6" class="text-center p-10 text-slate-400">
+                                    <div class="flex flex-col items-center justify-center opacity-60">
+                                        <i data-lucide="file-search" class="w-8 h-8 mb-3"></i>
+                                        <p>No medical history uploaded for this patient yet.</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div id="history-expanded-view" class="hidden mt-4 p-6 bg-slate-50 border border-slate-200 rounded-xl relative">
+                    <button onclick="document.getElementById('history-expanded-view').classList.add('hidden')" class="absolute top-4 right-4 text-slate-400 hover:text-slate-700"><i data-lucide="x" class="w-5 h-5"></i></button>
+                    <h4 class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">Raw Extracted Text</h4>
+                    <div id="history-raw-text" class="text-xs font-mono text-slate-700 bg-white p-4 rounded border border-slate-200 h-48 overflow-y-auto whitespace-pre-wrap"></div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <main id="ws-incidents" class="workspace">
+        <div class="max-w-7xl mx-auto space-y-6 md:space-y-10">
+            <h1 class="text-3xl md:text-4xl font-black tracking-tighter uppercase text-red-600">Legal Audit Trail</h1>
+            <div class="clinical-card p-6 md:p-12 bg-slate-900 border-none shadow-2xl overflow-x-auto">
+                <div id="incident-master-list" class="space-y-4 min-w-max">
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div id="emergency-overlay" class="fixed inset-0 flex items-center justify-center p-4 md:p-12 bg-slate-900/95 backdrop-blur-xl z-[5000]" style="display: none;">
+        <div class="video-box shadow-[0_0_100px_rgba(0,82,204,0.3)] w-full max-w-5xl h-[80vh] md:h-auto flex flex-col">
+            <div class="bg-blue-700 p-4 md:p-8 flex justify-between items-center text-white border-b border-blue-800">
+                <div class="flex items-center gap-3 md:gap-5">
+                    <span class="w-3 h-3 md:w-4 md:h-4 bg-white rounded-full animate-ping"></span>
+                    <h2 class="font-black text-lg md:text-2xl uppercase tracking-widest italic truncate" id="video-header-text">LIVE CLINICAL LINK</h2>
+                </div>
+                <div class="bg-black/20 px-4 py-2 md:px-6 md:py-2 rounded text-[9px] md:text-[11px] font-black uppercase tracking-widest border border-white/20 hidden sm:block">RECORDING ACTIVE</div>
+            </div>
+            
+            <div class="aspect-video md:aspect-auto relative bg-black flex-1 md:h-[500px] overflow-hidden">
+                <div id="cam-view" class="w-full h-full absolute inset-0 z-10 flex justify-center items-center"></div>
+                <div id="ringing-ui" class="text-center absolute inset-0 flex flex-col items-center justify-center z-20 hidden">
+                    <div class="w-16 h-16 md:w-20 md:h-20 border-4 border-t-blue-500 border-slate-700 rounded-full animate-spin mx-auto mb-4 md:mb-6"></div>
+                    <p class="text-white font-black tracking-[0.2em] md:tracking-[0.3em] text-[10px] md:text-sm uppercase animate-pulse">Dialing Node...</p>
+                </div>
+                <div class="absolute top-4 left-4 md:top-8 md:left-8 bg-black/80 px-3 py-1.5 md:px-6 md:py-3 border-l-4 border-blue-600 text-white font-mono text-[10px] md:text-sm font-bold z-30 shadow-lg" id="v-caller-id">NODE: --</div>
+            </div>
+
+            <div class="p-4 md:p-8 bg-white flex justify-center md:justify-end items-center">
+                <button onclick="endCallLocal()" class="w-full md:w-auto px-12 py-4 md:px-16 md:py-6 bg-red-600 text-white rounded-xl font-black text-sm uppercase tracking-[0.2em] shadow-2xl hover:bg-red-700 transition transform hover:scale-105 border-b-4 border-red-800">End Video Link</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="onboardModal" class="hidden fixed inset-0 z-[6000] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4 md:p-8">
+        <div class="bg-white w-full max-w-xl shadow-2xl p-6 md:p-14 rounded-xl border-t-8 border-blue-600">
+            <div class="flex justify-between items-center mb-6 md:mb-8">
+                <h2 class="text-2xl md:text-4xl font-black tracking-tighter uppercase italic text-slate-800">Register Node</h2>
+                <button onclick="document.getElementById('onboardModal').classList.add('hidden')" class="text-slate-400 hover:text-red-500"><i data-lucide="x" class="w-6 h-6 md:w-8 md:h-8"></i></button>
+            </div>
+            <form id="clinicalHandshakeForm" class="space-y-4 md:space-y-8">
+                <div><label class="label-caps mb-1 md:mb-2 block">Full Legal Identity</label><input type="text" id="p-name" required class="w-full border-2 border-slate-200 p-3 md:p-5 rounded-lg text-sm md:text-lg font-bold outline-none focus:border-blue-600 transition bg-slate-50 focus:bg-white"></div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8">
+                    <div><label class="label-caps mb-1 md:mb-2 block">Age</label><input type="number" id="p-age" required class="w-full border-2 border-slate-200 p-3 md:p-5 rounded-lg text-sm md:text-lg font-bold outline-none focus:border-blue-600 transition bg-slate-50 focus:bg-white"></div>
+                    <div><label class="label-caps mb-1 md:mb-2 block">Diagnosis Context</label><input type="text" id="p-history" required class="w-full border-2 border-slate-200 p-3 md:p-5 rounded-lg text-sm md:text-lg font-bold outline-none focus:border-blue-600 transition bg-slate-50 focus:bg-white"></div>
+                </div>
+                <button type="submit" class="w-full bg-blue-700 text-white py-4 md:py-6 rounded-lg font-black uppercase text-[10px] md:text-sm tracking-[0.2em] hover:bg-blue-800 transition shadow-xl mt-2 md:mt-4">Create & Sync Protocol</button>
+            </form>
+        </div>
+    </div>
+
+    <audio id="siren-sfx" loop src="https://www.soundjay.com/buttons/beep-01a.mp3"></audio>
+
+    <script>
+        lucide.createIcons();
+        const SERVER_URL = "http://192.168.1.46:5000/api/v1";
+        let SELECTED_PID = null; 
+        let isCalling = false;
+        let isCallActive = false;
+        let incomingCallState = false;
+        let lastChatCount = 0;
+        
+        let localMedicalRecords = []; // Store records to view raw text
+
+        function toggleMobileSidebar() {
+            const sidebar = document.getElementById('mobile-sidebar');
+            if(sidebar.classList.contains('-translate-x-full')) {
+                sidebar.classList.remove('-translate-x-full');
+                sidebar.classList.add('translate-x-0');
+            } else {
+                sidebar.classList.add('-translate-x-full');
+                sidebar.classList.remove('translate-x-0');
+            }
+        }
+
+        const ctx = document.getElementById('clinicalChart').getContext('2d');
+        const clinicalChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: [], datasets: [
+                { label: 'Thermal', data: [], borderColor: '#3b82f6', borderWidth: 4, pointRadius: 0, tension: 0.4, yAxisID: 'y', shadowOffsetX: 0, shadowOffsetY: 5, shadowBlur: 10, shadowColor: 'rgba(59, 130, 246, 0.5)' },
+                { label: 'Cardiac', data: [], borderColor: '#ef4444', borderWidth: 2, borderDash: [6,6], pointRadius: 0, tension: 0.4, yAxisID: 'y1' }
+            ]},
+            options: { 
+                responsive: true, maintainAspectRatio: false, 
+                plugins: { legend: { display: false } }, 
+                scales: { 
+                    x: { display: false }, 
+                    y: { min: 30, max: 45, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8', font: { weight: '800', size: 10 } } }, 
+                    y1: { min: 40, max: 160, position: 'right', grid: { display: false }, ticks: { color: '#f87171', font: { weight: '800', size: 10 } } } 
+                } 
+            }
+        });
+
+        async function runClinicalPolling() {
+            try {
+                const res = await fetch(`${SERVER_URL}/doctor/dashboard?doc_id=D001`);
+                if (!res.ok) throw new Error("Network response was not ok");
+                const data = await res.json();
+                
+                let queueHTML = ""; let dirHTML = ""; let auditHTML = "";
+
+                data.patients.forEach(p => {
+                    const isCrit = p.risk_status === "CRITICAL";
+                    
+                    queueHTML += `
+                        <div onclick="setPatient('${p.patient_info.id}')" class="triage-card ${p.patient_info.id === SELECTED_PID ? 'active' : ''} ${isCrit ? 'critical-node' : ''}">
+                            <div class="flex justify-between items-center mb-3">
+                                <p class="font-black text-xs md:text-sm tracking-tight text-slate-800 truncate">${p.patient_info.name}</p>
+                                <span class="text-[8px] md:text-[9px] font-black px-2 md:px-2.5 py-1 rounded border ${isCrit ? 'bg-red-600 text-white border-red-700' : 'bg-green-100 text-green-700 border-green-200'} uppercase tracking-widest whitespace-nowrap ml-2">${p.risk_status}</span>
+                            </div>
+                            <div class="flex justify-between items-center text-slate-500">
+                                <p class="text-[10px] font-black uppercase tracking-widest">${p.patient_info.id}</p>
+                                ${p.has_notifs ? '<span class="w-2 h-2 bg-blue-600 rounded-full animate-pulse"></span>' : ''}
+                            </div>
+                        </div>`;
+                    
+                    dirHTML += `
+                        <tr class="hover:bg-slate-50 transition cursor-pointer" onclick="setPatient('${p.patient_info.id}'); switchTab('dashboard', document.querySelector('.nav-icon.active'))">
+                            <td><span class="${isCrit ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'} px-2 md:px-3 py-1 md:py-1.5 rounded-full font-black text-[8px] md:text-[10px] uppercase tracking-widest">${p.risk_status}</span></td>
+                            <td class="font-mono text-blue-700 font-bold text-xs md:text-sm">${p.patient_info.id}</td>
+                            <td class="font-black text-slate-800 text-xs md:text-sm truncate max-w-[100px] md:max-w-none">${p.patient_info.name}</td>
+                            <td class="hidden sm:table-cell font-bold text-slate-600">${p.patient_info.age}</td>
+                            <td class="uppercase text-[8px] md:text-[11px] font-black text-slate-500 truncate max-w-[80px] md:max-w-none">${p.patient_info.history}</td>
+                            <td class="text-center"><i data-lucide="chevron-right" class="text-slate-300 w-4 h-4 md:w-auto md:h-auto"></i></td>
+                        </tr>`;
+
+                    if (isCrit && p.vital_snapshot) {
+                        auditHTML += `
+                            <div class="p-6 md:p-8 bg-red-900/10 border-l-4 md:border-l-8 border-red-600 rounded-lg flex flex-col md:flex-row justify-between md:items-center mb-6 shadow-sm hover:shadow-md transition gap-4 md:gap-0">
+                                <div>
+                                    <p class="text-red-600 font-black text-[9px] md:text-[11px] uppercase mb-1 md:mb-2 tracking-widest">CRITICAL BREACH: NODE ${p.patient_info.id}</p>
+                                    <h4 class="text-slate-800 font-black text-sm md:text-lg">Thermal: ${p.vital_snapshot.temp}C <span class="mx-2 md:mx-3 text-slate-300">|</span> Cardiac: ${p.vital_snapshot.hr} BPM</h4>
+                                </div>
+                                <div class="text-left md:text-right">
+                                    <span class="text-slate-500 text-xs md:text-sm font-mono font-bold block mb-2">${new Date().toLocaleTimeString()}</span>
+                                    <button onclick="setPatient('${p.patient_info.id}')" class="text-[9px] md:text-[10px] bg-white border border-slate-200 px-3 md:px-4 py-1.5 md:py-2 rounded font-black uppercase text-slate-700 hover:text-blue-600 shadow-sm w-full md:w-auto">Review</button>
+                                </div>
+                            </div>`;
+                    }
+                });
+
+                document.getElementById('patient-queue').innerHTML = queueHTML || "<p class='p-10 text-center text-xs font-bold text-slate-400'>No nodes synced.</p>";
+                document.getElementById('directory-body').innerHTML = dirHTML;
+                document.getElementById('incident-master-list').innerHTML = auditHTML || `
+                    <div class="flex flex-col items-center justify-center p-10 md:p-20 text-slate-500 opacity-50">
+                        <i data-lucide="shield-check" class="w-12 h-12 md:w-16 md:h-16 mb-4"></i>
+                        <p class="font-black uppercase tracking-widest text-xs md:text-sm text-center">System Secure. No active incidents.</p>
+                    </div>`;
+                lucide.createIcons();
+
+                // UPDATE WORKSPACE FOR SELECTED PATIENT
+                if(SELECTED_PID) {
+                    const activeP = data.patients.find(p => p.patient_info.id === SELECTED_PID);
+                    if (activeP) updateActiveWorkspace(activeP, data.active_signals);
+                }
+
+            } catch(e) { console.warn("API Sync Interrupted...", e); }
+        }
+
+        // 3. UI UPDATER
+        function updateActiveWorkspace(p, active_signals) {
+            document.getElementById('active-p-name').innerText = p.patient_info.name;
+            document.getElementById('history-p-name').innerText = p.patient_info.name + " (" + p.patient_info.id + ")";
+            document.getElementById('active-p-meta').innerText = `AGE: ${p.patient_info.age} | PROTOCOL: ${p.patient_info.history}`;
+            document.getElementById('p-node-id').innerText = `ID: ${p.patient_info.id}`;
+            
+            // 🔥 FIX: EXPLICITLY CHECK FOR "CRITICAL" TO ENSURE RED BADGE 🔥
+            const badge = document.getElementById('p-status-badge');
+            if (p.risk_status === "CRITICAL") {
+                badge.innerText = "CRITICAL BREACH";
+                badge.className = "bg-red-600 text-white text-[9px] md:text-[11px] font-black px-3 md:px-4 py-1.5 rounded uppercase tracking-widest shadow-lg shadow-red-200 animate-pulse";
+            } else {
+                badge.innerText = p.risk_status;
+                badge.className = "bg-green-100 text-green-700 text-[9px] md:text-[11px] font-black px-3 md:px-4 py-1.5 rounded uppercase tracking-widest";
+            }
+
+            const snap = p.vital_snapshot;
+            if (snap) {
+                document.getElementById('v-temp').innerText = snap.temp.toFixed(1);
+                document.getElementById('v-hr').innerText = snap.hr.toFixed(0);
+                document.getElementById('v-accel').innerText = snap.accel.toFixed(2);
+                
+                document.getElementById('bar-temp').style.width = `${Math.min(Math.max(((snap.temp-30)/15)*100, 0), 100)}%`;
+                document.getElementById('bar-hr').style.width = `${Math.min(Math.max(((snap.hr-40)/120)*100, 0), 100)}%`;
+                document.getElementById('bar-accel').style.width = `${Math.min(Math.max(((snap.accel)/5)*100, 0), 100)}%`;
+
+                if (clinicalChart.data.labels.length > 40) {
+                    clinicalChart.data.labels.shift();
+                    clinicalChart.data.datasets[0].data.shift();
+                    clinicalChart.data.datasets[1].data.shift();
+                }
+                clinicalChart.data.labels.push("");
+                clinicalChart.data.datasets[0].data.push(snap.temp);
+                clinicalChart.data.datasets[1].data.push(snap.hr);
+                clinicalChart.update('none');
+            }
+
+            if (p.medical_records && p.medical_records.length > 0) {
+                localMedicalRecords = p.medical_records; 
+                
+                let rows = "";
+                p.medical_records.forEach((rec, index) => {
+                    const isCrit = rec.condition.includes("Critical");
+                    rows += `
+                        <tr onclick="viewRawText(${index})">
+                            <td class="font-mono text-[10px] text-slate-500">${rec.date}</td>
+                            <td class="text-blue-600 font-bold truncate max-w-[100px]">${rec.filename}</td>
+                            <td class="font-mono font-bold text-slate-700">${rec.temp}°C | ${rec.hr} BPM | ${rec.bp} | ${rec.spo2}</td>
+                            <td><span class="${isCrit ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'} px-2 py-1 rounded font-black text-[9px] uppercase">${rec.condition}</span></td>
+                            <td class="font-bold text-slate-600 text-[11px]">${rec.checkup_freq}</td>
+                            <td class="text-green-600 font-bold font-mono text-[10px]">${rec.scheduled_call}</td>
+                        </tr>
+                    `;
+                });
+                document.getElementById('history-record-tbody').innerHTML = rows;
+                
+                const safeTempLimit = (p.thresholds && p.thresholds.temp) ? p.thresholds.temp : 33.2;
+                document.getElementById('calib-status-badge').innerText = `CALIBRATED LIMIT: ${safeTempLimit}°C`;
+                document.getElementById('calib-status-badge').className = "bg-green-100 text-green-700 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest";
+            } else {
+                document.getElementById('history-record-tbody').innerHTML = `
+                    <tr>
+                        <td colspan="6" class="text-center p-10 text-slate-400">
+                            <div class="flex flex-col items-center justify-center opacity-60">
+                                <i data-lucide="file-search" class="w-8 h-8 mb-3"></i>
+                                <p>No medical history uploaded for this patient yet.</p>
+                            </div>
+                        </td>
+                    </tr>`;
+                document.getElementById('calib-status-badge').innerText = "Uncalibrated";
+                document.getElementById('calib-status-badge').className = "bg-slate-100 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest";
+            }
+
+            const signals = active_signals || {};
+            const callState = signals[SELECTED_PID]; 
+
+            if (callState) {
+                if (callState === 'CONNECTED' && isCalling && !isCallActive) {
+                    document.getElementById('ringing-ui').classList.add('hidden');
+                    document.getElementById('video-header-text').innerText = "LIVE CLINICAL CONSULTATION";
+                    startCamera();
+                    isCallActive = true;
+                } else if (callState === 'RINGING' && !isCalling && !isCallActive && !incomingCallState) {
+                    incomingCallState = true;
+                    document.getElementById('inc-call-id').innerText = SELECTED_PID;
+                    document.getElementById('call-toast').classList.add('show');
+                    document.getElementById('siren-sfx').play();
+                }
+            } else {
+                if (incomingCallState) {
+                    document.getElementById('call-toast').classList.remove('show');
+                    document.getElementById('siren-sfx').pause();
+                    incomingCallState = false;
+                }
+                if (isCallActive || isCalling) endCallLocal();
+            }
+            
+            syncChatHistory(); 
+        }
+        
+        function viewRawText(index) {
+            const rec = localMedicalRecords[index];
+            if(!rec) return;
+            document.getElementById('history-raw-text').innerText = rec.extracted_text;
+            document.getElementById('history-expanded-view').classList.remove('hidden');
+        }
+
+        // 4. REAL CHAT API INTEGRATION
+        async function syncChatHistory() {
+            if(!SELECTED_PID) return;
+            try {
+                const res = await fetch(`${SERVER_URL}/chat/sync`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ patient_id: SELECTED_PID, role: "DOC", message: "" }) 
+                });
+                const data = await res.json();
+                
+                if(data.history && data.history.length !== lastChatCount) {
+                    const box = document.getElementById('chat-box');
+                    const isAtBottom = box.scrollHeight - box.scrollTop <= box.clientHeight + 50;
+
+                    box.innerHTML = data.history.map(msg => `
+                        <div class="chat-bubble ${msg.sender === 'Physician' ? 'msg-doc' : 'msg-pat'} shadow-sm">
+                            <span class="msg-sender">${msg.sender}</span>
+                            ${msg.text} 
+                            <span class="msg-meta">${msg.time}</span>
+                        </div>
+                    `).join('');
+                    
+                    lastChatCount = data.history.length;
+                    if(isAtBottom) box.scrollTop = box.scrollHeight; // Auto-scroll
+                }
+            } catch(e) { console.error("Chat Sync Error:", e); }
+        }
+
+        async function sendChatMessage() {
+            const input = document.getElementById('chat-input');
+            const msg = input.value.trim();
+            if(!msg || !SELECTED_PID) return;
+
+            const box = document.getElementById('chat-box');
+            box.innerHTML += `
+                <div class="chat-bubble msg-doc shadow-sm opacity-50">
+                    <span class="msg-sender">Physician</span>
+                    ${msg} 
+                    <span class="msg-meta">Sending...</span>
+                </div>`;
+            box.scrollTop = box.scrollHeight;
+            input.value = "";
+
+            try {
+                await fetch(`${SERVER_URL}/chat/sync`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ patient_id: SELECTED_PID, role: "DOC", message: msg })
+                });
+                await syncChatHistory();
+            } catch(e) {
+                alert("Network error: Message failed to send.");
+            }
+        }
+
+        // 5. WEBRTC VIDEO CALLING LOGIC
+        async function initiateCall() {
+            if(!SELECTED_PID) return alert("Select a patient first.");
+            isCalling = true;
+            document.getElementById('emergency-overlay').style.display = 'flex';
+            document.getElementById('v-caller-id').innerText = `DIALING NODE: ${SELECTED_PID}`;
+            document.getElementById('ringing-ui').classList.remove('hidden');
+            document.getElementById('video-header-text').innerText = "INITIATING CALL...";
+            
+            try {
+                await fetch(`${SERVER_URL}/video/signal`, {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ patient_id: SELECTED_PID, action: 'CALL' })
+                });
+            } catch(e) { console.error("Call Signal Failed", e); }
+        }
+
+        async function acceptCall() {
+            document.getElementById('call-toast').classList.remove('show');
+            document.getElementById('siren-sfx').pause();
+            incomingCallState = false;
+            
+            document.getElementById('emergency-overlay').style.display = 'flex';
+            document.getElementById('video-header-text').innerText = "LIVE CLINICAL CONSULTATION";
+            document.getElementById('ringing-ui').classList.add('hidden'); 
+            
+            isCallActive = true;
+            startCamera(); 
+
+            await fetch(`${SERVER_URL}/video/signal`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ patient_id: SELECTED_PID, action: 'ACCEPT' })
+            });
+        }
+
+        async function rejectCall() {
+            document.getElementById('call-toast').classList.remove('show');
+            document.getElementById('siren-sfx').pause();
+            incomingCallState = false;
+            await fetch(`${SERVER_URL}/video/signal`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ patient_id: SELECTED_PID, action: 'END' })
+            });
+        }
+
+        async function startCamera() {
+            const box = document.getElementById('cam-view');
+            box.innerHTML = ''; 
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                const video = document.createElement('video');
+                video.srcObject = stream; 
+                video.autoplay = true;
+                video.className = "w-full h-full object-cover z-10 relative";
+                box.appendChild(video);
+            } catch (err) {
+                box.innerHTML = `<div class="text-white text-center font-bold bg-red-900/80 p-6 rounded-lg border border-red-500 z-30 relative mx-4">
+                    <i data-lucide="camera-off" class="w-8 h-8 mx-auto mb-2"></i>
+                    HARDWARE BLOCKED: Cannot access webcam/mic.<br><span class="text-xs font-normal mt-2 block">Please check browser permissions.</span>
+                </div>`;
+                lucide.createIcons();
+            }
+        }
+
+        function endCallLocal() {
+            document.getElementById('emergency-overlay').style.display = 'none';
+            document.getElementById('call-toast').classList.remove('show');
+            document.getElementById('siren-sfx').pause();
+            isCalling = false;
+            isCallActive = false;
+            incomingCallState = false;
+            
+            const video = document.querySelector('#cam-view video');
+            if(video && video.srcObject) {
+                video.srcObject.getTracks().forEach(t => t.stop());
+            }
+            document.getElementById('cam-view').innerHTML = ''; 
+            
+            document.getElementById('cam-view').innerHTML = `
+                <div id="ringing-ui" class="text-center absolute inset-0 flex flex-col items-center justify-center z-20 hidden">
+                    <div class="w-16 h-16 md:w-20 md:h-20 border-4 border-t-blue-500 border-slate-700 rounded-full animate-spin mx-auto mb-4 md:mb-6"></div>
+                    <p class="text-white font-black tracking-[0.2em] md:tracking-[0.3em] text-[10px] md:text-sm uppercase animate-pulse">Dialing Node...</p>
+                </div>`;
+                
+            fetch(`${SERVER_URL}/video/signal`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ patient_id: SELECTED_PID, action: 'END' })
+            });
+        }
+
+        // 🔥 6. UPDATED PDF UPLOAD & AI PARSING LOGIC 🔥
+        async function submitPDFReport() {
+            if(!SELECTED_PID) return alert("Select patient first.");
+            const fileInput = document.getElementById('pdf-file');
+            if(fileInput.files.length === 0) return;
+            
+            const formData = new FormData();
+            formData.append("node_id", SELECTED_PID); // Ensure it matches backend
+            formData.append("document", fileInput.files[0]);
+
+            const statusBox = document.getElementById('ai-status-box');
+            statusBox.classList.remove('hidden');
+            statusBox.innerHTML = `<div class="w-3 h-3 border-2 border-purple-600 border-t-transparent rounded-full animate-spin"></div> Parsing & Calibrating...`;
+            
+            try {
+                // Connects to the new history extraction endpoint
+                const res = await fetch(`${SERVER_URL}/patient/upload-history`, { method: 'POST', body: formData });
+                const data = await res.json();
+                if(res.ok) {
+                    statusBox.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-green-600"></i> <span class="text-green-700">Success! AI Calibrated.</span>`;
+                    lucide.createIcons();
+                    
+                    // Switch to the History tab to show the extracted text immediately
+                    switchTab('history', document.getElementById('nav-history-icon'));
+                } else throw new Error("API Failed");
+            } catch(e) {
+                statusBox.innerHTML = `<i data-lucide="alert-triangle" class="w-4 h-4 text-red-600"></i> <span class="text-red-700">Upload failed. Retrying...</span>`;
+                lucide.createIcons();
+            }
+        }
+
+        // 7. PRESCRIPTION GENERATION
+        async function issueDigitalRx() {
+            if(!SELECTED_PID) return alert("Select patient first.");
+            const meds = prompt("Enter Medical Prescription Details (Use Enter for new line):");
+            if(!meds) return;
+            
+            const btn = document.getElementById('rx-btn');
+            const originalText = btn.innerText;
+            btn.innerText = "SENDING...";
+            btn.disabled = true;
+            
+            try {
+                await fetch(`${SERVER_URL}/doctor/prescription`, {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ patient_id: SELECTED_PID, medications: meds })
+                });
+                alert(`Prescription successfully issued and sent to Node ${SELECTED_PID}.`);
+            } catch(e) { 
+                alert("Failed to issue Prescription. Check Server connection."); 
+            } finally {
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        // 8. CRUD ONBOARDING & NAVIGATION
+        function switchTab(target, el) {
+            document.querySelectorAll('.workspace').forEach(w => w.classList.remove('workspace-active'));
+            document.querySelectorAll('.nav-icon').forEach(i => i.classList.remove('active'));
+            document.getElementById(`ws-${target}`).classList.add('workspace-active');
+            el.classList.add('active');
+            
+            if(window.innerWidth < 768) toggleMobileSidebar();
+        }
+        
+        function setPatient(id) { 
+            SELECTED_PID = id; 
+            document.getElementById('chat-box').innerHTML = `<div class="p-10 text-center animate-pulse text-xs font-bold text-slate-400">Loading vault...</div>`;
+            runClinicalPolling(); 
+            if(window.innerWidth < 768) toggleMobileSidebar();
+        }
+        
+        function filterQueue() {
+            const q = document.getElementById('triage-search').value.toLowerCase();
+            document.querySelectorAll('.triage-card').forEach(c => {
+                c.style.display = c.innerText.toLowerCase().includes(q) ? 'block' : 'none';
+            });
+        }
+
+        document.getElementById('clinicalHandshakeForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const btn = e.target.querySelector('button[type="submit"]');
+            btn.innerText = "Processing..."; btn.disabled = true;
+
+            const payload = {
+                name: document.getElementById('p-name').value,
+                age: document.getElementById('p-age').value,
+                history: document.getElementById('p-history').value,
+                created_by: 'D001'
+            };
+            try {
+                const res = await fetch(`${SERVER_URL}/patient/register`, {
+                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+                });
+                const data = await res.json();
+                SELECTED_PID = data.p_id;
+                document.getElementById('onboardModal').classList.add('hidden');
+                runClinicalPolling();
+                if(window.innerWidth < 768) toggleMobileSidebar();
+            } catch(err) { alert("Registration failed."); }
+            finally { btn.innerText = "Create & Sync Protocol"; btn.disabled = false; }
+        };
+
+        // BOOT SEQUENCE
+        setInterval(runClinicalPolling, 3000);
+        runClinicalPolling();
+    </script>
+</body>
+</html>

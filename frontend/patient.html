@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title> Mobile Rescue Node v49.0</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@600;800&display=swap" rel="stylesheet">
+
+    <style>
+        :root { --blue: #0052cc; --red: #de350b; --bg: #f4f6f8; }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg); overflow-x: hidden; -webkit-tap-highlight-color: transparent; transition: background-color 0.5s ease; }
+        
+        .premium-card { background: white; border-radius: 24px; box-shadow: 0 10px 30px rgba(9,30,66,0.04); border: 1px solid rgba(223, 225, 230, 0.5); }
+        .dark-card { background: #091e42; border-radius: 24px; box-shadow: 0 15px 35px rgba(9,30,66,0.2); border: 1px solid rgba(255,255,255,0.05); }
+        
+        .vital-digit { font-size: 3.5rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; line-height: 1; letter-spacing: -2px; }
+        @media (min-width: 768px) { .vital-digit { font-size: 4.5rem; } }
+        .label-caps { font-size: 11px; font-weight: 800; color: #7a869a; text-transform: uppercase; letter-spacing: 0.15em; }
+
+        .emergency-active { background-color: #ffebe6 !important; border: 8px solid var(--red); }
+        .emergency-active .premium-card { border-color: rgba(222, 53, 11, 0.3) !important; animation: red-throb 2s infinite; }
+        @keyframes red-throb { 0%, 100% { box-shadow: 0 0 0 0 rgba(222, 53, 11, 0.15); } 50% { box-shadow: 0 0 0 20px rgba(222, 53, 11, 0); } }
+
+        #call-toast { transform: translateY(150%); transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); z-index: 6000; }
+        #call-toast.show { transform: translateY(0); }
+
+        #video-overlay { background: rgba(9, 30, 66, 0.98); z-index: 5000; display: none; position: fixed; inset: 0; align-items: center; justify-content: center; padding: 16px; backdrop-filter: blur(10px); }
+        .video-frame { width: 100%; max-width: 600px; border: 2px solid rgba(255,255,255,0.1); border-radius: 24px; background: #000; overflow: hidden; box-shadow: 0 30px 60px rgba(0,0,0,0.5); }
+        
+        #clinical-chat-widget { transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1); bottom: 0; position: fixed; }
+        .chat-hidden { transform: translateY(110%); }
+        .chat-visible { transform: translateY(0); }
+        
+        .msg-bubble { padding: 12px 16px; border-radius: 16px; font-size: 13px; font-weight: 600; line-height: 1.4; max-width: 85%; position: relative; }
+        .msg-pt { background: var(--blue); color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
+        .msg-dr { background: #f4f5f7; color: var(--brand-dark); align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid #dfe1e6; }
+        
+        .hide-scroll::-webkit-scrollbar { display: none; }
+        .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* 🔥 HISTORY RECORD TABLE STYLES 🔥 */
+        .history-record-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; }
+        .history-record-table th { background-color: #f8fafc; padding: 12px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.1em; font-size: 10px; border-bottom: 2px solid #e2e8f0; }
+        .history-record-table td { padding: 12px; border-bottom: 1px solid #f1f5f9; font-weight: 500; color: #334155; }
+        .history-record-table tr:hover { background-color: #f8fafc; cursor: pointer;}
+    </style>
+</head>
+<body id="portal-root">
+
+    <!-- LOGIN SCREEN -->
+    <div id="secure-handshake-guard" class="fixed inset-0 flex items-center justify-center p-6 bg-slate-900/95 backdrop-blur-lg z-[8000]">
+        <div class="bg-white w-full max-w-sm p-10 md:p-12 text-center rounded-[30px] shadow-2xl border-t-[8px] border-blue-600">
+            <div class="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <i data-lucide="shield-check" class="w-10 h-10"></i>
+            </div>
+            <h2 class="text-2xl font-black mb-2 uppercase tracking-tight text-slate-800">Node Sync</h2>
+            <p class="text-xs text-slate-500 font-semibold mb-8">Enter your secure Node-ID to initiate telemetry.</p>
+            <input type="text" id="node-id-input" placeholder="P-XXXX" class="w-full border-2 border-slate-200 rounded-2xl p-4 text-xl font-black focus:border-blue-600 text-center uppercase mb-6 bg-slate-50 outline-none transition">
+            <button onclick="executeHandshake()" id="auth-btn" class="w-full bg-blue-700 text-white py-4 rounded-2xl font-black uppercase tracking-widest text-xs active:scale-95 transition shadow-lg shadow-blue-200">Authenticate</button>
+            <p id="handshake-err" class="hidden text-red-600 text-[10px] font-bold mt-4 uppercase">ACCESS DENIED</p>
+        </div>
+    </div>
+
+    <!-- INCOMING CALL TOAST -->
+    <div id="call-toast" class="fixed bottom-6 left-4 right-4 md:left-auto md:right-10 md:w-96 bg-white rounded-3xl shadow-[0_20px_60px_rgba(0,0,0,0.2)] border border-slate-100 p-6 flex flex-col z-[6000]">
+        <div class="flex items-center gap-5 mb-6">
+            <div class="bg-green-100 text-green-600 p-4 rounded-full animate-bounce">
+                <i data-lucide="video" class="w-7 h-7"></i>
+            </div>
+            <div>
+                <h3 class="font-black text-slate-900 text-xl tracking-tight leading-tight">Incoming Link</h3>
+                <p class="text-slate-500 font-bold text-xs mt-1 uppercase tracking-widest">Dr. Peer Mohammed</p>
+            </div>
+        </div>
+        <div class="flex gap-3">
+            <button onclick="rejectCall()" class="flex-1 bg-slate-100 text-slate-600 py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-red-50 hover:text-red-600 transition active:scale-95">Decline</button>
+            <button onclick="acceptCall()" class="flex-1 bg-green-500 text-white py-4 rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg shadow-green-200 active:bg-green-600 transition active:scale-95">Answer</button>
+        </div>
+    </div>
+
+    <div id="portal-app" class="hidden opacity-0 transition-opacity duration-700">
+        
+        <nav class="bg-white/80 backdrop-blur-md border-b border-slate-200/50 p-4 md:p-6 px-6 md:px-12 flex justify-between items-center sticky top-0 z-[1000]">
+            <div class="flex items-center gap-3">
+                <div class="bg-blue-600 p-2 rounded-xl text-white shadow-md"><i data-lucide="activity" class="w-5 h-5"></i></div>
+                <h1 class="text-lg font-black uppercase tracking-tighter text-slate-800">Rescue<span class="text-blue-600 opacity-50">_Node</span></h1>
+            </div>
+            <div class="flex items-center gap-3">
+                <button onclick="logoutNode()" class="p-3 bg-red-50 border border-red-200 text-red-600 rounded-full shadow-sm active:bg-red-100 transition hidden md:flex items-center gap-2">
+                    <i data-lucide="log-out" class="w-4 h-4"></i> <span class="text-[10px] font-black uppercase tracking-widest">Disconnect</span>
+                </button>
+                <button onclick="toggleChat()" class="p-3 bg-white border border-slate-200 text-slate-700 rounded-full relative shadow-sm active:bg-slate-50 transition">
+                    <i data-lucide="message-circle" class="w-5 h-5"></i>
+                    <span id="chat-badge" class="hidden absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full border-2 border-white"></span>
+                </button>
+            </div>
+        </nav>
+
+        <main class="max-w-6xl mx-auto p-4 md:p-10 space-y-6 md:space-y-8 mb-24">
+            
+            <header class="flex flex-col md:flex-row justify-between items-start md:items-end gap-5">
+                <div class="space-y-1 w-full">
+                    <div class="flex items-center gap-3 mb-2">
+                        <span id="risk-badge" class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border border-green-200">Optimal</span>
+                        <span id="disp-id" class="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-2 py-1 rounded-md">ID: --</span>
+                    </div>
+                    <h2 id="disp-name" class="text-4xl md:text-5xl font-black text-slate-900 tracking-tighter truncate leading-none">--</h2>
+                    <p class="text-slate-500 font-semibold text-xs mt-2 uppercase tracking-widest opacity-70">Protocol Engaged</p>
+                </div>
+                
+                <div class="flex flex-col sm:flex-row w-full md:w-auto gap-3 mt-4 md:mt-0">
+                    <div id="prescription-pnl" class="hidden bg-slate-900 p-1.5 pl-4 rounded-2xl text-white flex justify-between items-center gap-4 shadow-xl">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></span>
+                            <span class="text-[10px] font-black uppercase tracking-widest opacity-80">New Rx</span>
+                        </div>
+                        <button onclick="triggerRxDownload()" class="bg-blue-600 text-white px-5 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest active:scale-95 transition">Download</button>
+                    </div>
+                    <button id="video-call-btn" onclick="triggerManualCall()" class="opacity-50 cursor-not-allowed bg-white border border-slate-200 text-slate-800 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] md:text-xs shadow-sm transition-all flex items-center justify-center gap-2">
+                        <i data-lucide="video-off" class="w-4 h-4 text-slate-400"></i> Locked
+                    </button>
+                </div>
+            </header>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
+                <div class="premium-card p-6 md:p-8 flex flex-col justify-between">
+                    <div class="flex justify-between items-start mb-6">
+                        <span class="label-caps">Thermal Core</span>
+                        <i data-lucide="thermometer" class="text-slate-300 w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-baseline"><span id="v-temp" class="vital-digit text-slate-800">--.-</span><span class="text-xl font-bold ml-1 text-slate-400">°C</span></div>
+                        <div class="w-full bg-slate-100 h-1.5 rounded-full mt-4 overflow-hidden"><div id="bar-temp" class="h-full bg-blue-500 transition-all duration-700" style="width: 0%"></div></div>
+                    </div>
+                </div>
+                <div class="premium-card p-6 md:p-8 border-b-4 border-red-500 flex flex-col justify-between" id="hr-container">
+                    <div class="flex justify-between items-start mb-6">
+                        <span class="label-caps text-red-500">Cardiac Freq</span>
+                        <i data-lucide="activity" class="text-red-300 w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-baseline"><span id="v-hr" class="vital-digit text-slate-300">0</span><span class="text-xl font-bold ml-1 text-red-300">BPM</span></div>
+                        <div class="w-full bg-red-50 h-1.5 rounded-full mt-4 overflow-hidden"><div id="bar-hr" class="h-full bg-red-500 transition-all duration-700" style="width: 0%"></div></div>
+                    </div>
+                </div>
+                <div class="premium-card p-6 md:p-8 flex flex-col justify-between">
+                    <div class="flex justify-between items-start mb-6">
+                        <span class="label-caps">Kinetic Force</span>
+                        <i data-lucide="move" class="text-slate-300 w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-baseline"><span id="v-accel" class="vital-digit text-slate-800">-.--</span><span class="text-xl font-bold ml-1 text-slate-400">G</span></div>
+                        <div class="w-full bg-slate-100 h-1.5 rounded-full mt-4 overflow-hidden"><div id="bar-accel" class="h-full bg-slate-400 transition-all duration-700" style="width: 0%"></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="premium-card p-6 md:p-10 border border-slate-100 flex flex-col w-full overflow-hidden">
+                <div class="flex items-center justify-between mb-6 border-b border-slate-100 pb-4">
+                    <div class="flex items-center gap-3">
+                        <div class="bg-indigo-100 p-2.5 rounded-xl"><i data-lucide="file-clock" class="w-5 h-5 text-indigo-600"></i></div>
+                        <h3 class="font-black uppercase tracking-widest text-xs text-slate-700">AI Medical History Profile</h3>
+                    </div>
+                    <span id="history-badge" class="bg-slate-100 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">No Record Found</span>
+                </div>
+                
+                <div class="overflow-x-auto rounded-xl border border-slate-100">
+                    <table class="history-record-table min-w-max">
+                        <thead>
+                            <tr>
+                                <th>Date Uploaded</th>
+                                <th>Report Source</th>
+                                <th>Decoded Vitals (T / HR / BP / SpO2)</th>
+                                <th>AI Condition Status</th>
+                                <th>Monitoring Frequency</th>
+                                <th>Next Video Consult</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-record-tbody">
+                            <tr><td colspan="6" class="text-center p-10 text-slate-400 italic">No historical records found.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div id="history-expanded-view" class="hidden mt-4 p-6 bg-slate-50 border border-slate-200 rounded-xl relative">
+                    <button onclick="document.getElementById('history-expanded-view').classList.add('hidden')" class="absolute top-4 right-4 text-slate-400 hover:text-slate-700"><i data-lucide="x" class="w-5 h-5"></i></button>
+                    <h4 class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">Raw Extracted Text</h4>
+                    <div id="history-raw-text" class="text-xs font-mono text-slate-700 bg-white p-4 rounded border border-slate-200 h-48 overflow-y-auto whitespace-pre-wrap"></div>
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+                <div class="premium-card p-6 border border-slate-100 flex flex-col h-full">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="bg-blue-100 p-2.5 rounded-xl"><i data-lucide="brain-circuit" class="w-5 h-5 text-blue-600"></i></div>
+                        <h3 class="font-black uppercase tracking-widest text-xs text-slate-700">AI Clinical Pathway</h3>
+                    </div>
+                    <div id="ai-action-bg" class="flex-1 bg-blue-50/50 border border-blue-100/50 rounded-2xl p-5 md:p-6 transition-colors duration-300">
+                        <div class="flex items-center gap-3 mb-4">
+                            <i id="ai-action-icon" data-lucide="shield-check" class="w-6 h-6 text-blue-500"></i>
+                            <p class="text-base md:text-lg font-black text-blue-900 tracking-tight" id="ai-action-headline">System Optimal</p>
+                        </div>
+                        <ul class="space-y-3" id="ai-action-list">
+                            <li class="flex items-start gap-3"><i data-lucide="loader" class="w-4 h-4 text-slate-400 animate-spin mt-0.5"></i> <span class="text-slate-500 font-semibold text-sm">Awaiting intelligence matrix...</span></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="premium-card p-6 border border-slate-100 flex flex-col h-full">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="bg-green-100 p-2.5 rounded-xl"><i data-lucide="utensils" class="w-5 h-5 text-green-600"></i></div>
+                        <h3 class="font-black uppercase tracking-widest text-xs text-slate-700">Diet & Hydration</h3>
+                    </div>
+                    <div class="flex-1 bg-green-50/50 border border-green-100/50 rounded-2xl p-5 md:p-6">
+                        <div class="flex items-center gap-3 mb-4">
+                            <i data-lucide="droplets" class="w-6 h-6 text-green-500"></i>
+                            <p class="text-base md:text-lg font-black text-green-900 tracking-tight">Metabolic Protocol</p>
+                        </div>
+                        <ul class="space-y-3" id="ai-diet-list">
+                            <li class="flex items-start gap-3"><i data-lucide="loader" class="w-4 h-4 text-slate-400 animate-spin mt-0.5"></i> <span class="text-slate-500 font-semibold text-sm">Calculating matrix...</span></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="dark-card p-6 md:p-8 relative overflow-hidden">
+                <div class="absolute top-0 right-0 w-64 h-64 bg-blue-600 rounded-full blur-[100px] opacity-20 pointer-events-none"></div>
+                <div class="flex justify-between items-center mb-6 relative z-10">
+                    <div class="flex items-center gap-3">
+                        <i data-lucide="activity-square" class="text-blue-400 w-5 h-5"></i>
+                        <h4 class="text-xs font-black text-white uppercase tracking-[0.2em]">Neural Waveform</h4>
+                    </div>
+                    <span class="bg-white/10 border border-white/10 text-white px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center gap-2">
+                        <span class="w-1.5 h-1.5 bg-green-400 rounded-full animate-ping"></span> Live
+                    </span>
+                </div>
+                <div class="relative w-full h-[250px] md:h-[350px] z-10">
+                    <canvas id="waveformChart"></canvas>
+                </div>
+            </div>
+            
+        </main>
+        
+        <!-- MOBILE LOGOUT BUTTON (Only visible on small screens at the bottom) -->
+        <div class="md:hidden fixed bottom-6 left-0 right-0 flex justify-center z-[4000]">
+             <button onclick="logoutNode()" class="px-6 py-3 bg-red-600 text-white rounded-full shadow-[0_10px_30px_rgba(222,53,11,0.3)] font-black uppercase text-[10px] tracking-widest flex items-center gap-2">
+                 <i data-lucide="power" class="w-4 h-4"></i> Disconnect Node
+             </button>
+        </div>
+    </div>
+
+    <!-- VIDEO CALL OVERLAY -->
+    <div id="video-overlay" class="flex-col">
+        <div class="video-frame relative w-full h-[80vh] md:h-auto flex flex-col">
+            <div class="bg-blue-700 p-4 md:p-6 flex justify-between items-center text-white">
+                <span class="font-black uppercase tracking-widest text-[10px] md:text-xs flex items-center"><span class="inline-block w-2 h-2 bg-green-400 rounded-full animate-pulse mr-3"></span> Secured Clinical Feed</span>
+            </div>
+            <div class="flex-1 relative bg-slate-900 flex items-center justify-center overflow-hidden h-[400px]">
+                <div id="cam-view" class="absolute inset-0 z-10 flex items-center justify-center"></div>
+                <div id="ringing-ui-out" class="text-center absolute z-20 hidden">
+                    <div class="w-16 h-16 border-4 border-t-blue-500 border-slate-700 rounded-full animate-spin mx-auto mb-4"></div>
+                    <p class="text-white font-black tracking-widest text-[10px] uppercase animate-pulse">Dialing Physician...</p>
+                </div>
+                <p class="text-slate-600 font-black text-[10px] uppercase tracking-widest z-0" id="cam-placeholder">Awaiting Stream...</p>
+            </div>
+            <div class="p-6 bg-white text-center border-t-4 border-blue-600">
+                <button onclick="endCallLocal()" class="w-full md:w-auto bg-red-600 text-white px-12 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-red-200 active:scale-95 transition">End Consultation</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CLINICAL CHAT WIDGET -->
+    <div id="clinical-chat-widget" class="chat-hidden fixed bottom-0 left-0 right-0 w-full md:w-[400px] md:left-auto md:right-8 h-[75vh] md:h-[550px] z-[7000] flex flex-col bg-white rounded-t-[30px] md:rounded-[30px] shadow-[0_-20px_60px_rgba(0,0,0,0.15)] border border-slate-100 overflow-hidden">
+        <div class="bg-white p-5 border-b border-slate-100 flex justify-between items-center cursor-pointer" onclick="toggleChat()">
+            <div class="flex items-center gap-3">
+                <div class="bg-blue-100 p-2 rounded-xl text-blue-600"><i data-lucide="message-circle" class="w-5 h-5"></i></div>
+                <span class="font-black text-sm uppercase tracking-tight text-slate-800">Tele-Chat</span>
+            </div>
+            <div class="bg-slate-50 p-2 rounded-full"><i data-lucide="chevron-down" class="w-5 h-5 text-slate-400"></i></div>
+        </div>
+        <div id="chat-stream" class="flex-1 overflow-y-auto p-5 bg-slate-50 flex flex-col gap-4 hide-scroll"></div>
+        <div class="p-4 bg-white border-t border-slate-100 flex gap-3">
+            <input type="text" id="chat-msg-input" class="flex-1 text-sm font-semibold outline-none border-2 border-slate-100 rounded-2xl px-5 bg-slate-50 focus:bg-white focus:border-blue-500 transition" placeholder="Type a message..." onkeypress="if(event.key === 'Enter') sendMsg()">
+            <button onclick="sendMsg()" class="bg-blue-600 text-white p-4 rounded-2xl active:scale-95 shadow-md shadow-blue-200"><i data-lucide="send" class="w-5 h-5"></i></button>
+        </div>
+    </div>
+
+    <audio id="siren-sfx" loop src="https://www.soundjay.com/buttons/beep-01a.mp3"></audio>
+
+    <script>
+        lucide.createIcons();
+        const SERVER_URL = "http://192.168.1.46:5000/api/v1";
+        
+        let PORTAL_ID = localStorage.getItem('zhopingo_node_id');
+        let pollingInterval = null; // Store interval to clear on logout
+        let isCallActive = false;
+        let isCalling = false;
+        let incomingCallState = false;
+        let lastChatCount = 0;
+        
+        let localMedicalRecords = []; 
+        let isVideoCallLocked = true;
+        let scheduledCallText = "No call scheduled";
+        let isCriticalEmergency = false; 
+
+        const ctx = document.getElementById('waveformChart').getContext('2d');
+        let gradient = ctx.createLinearGradient(0, 0, 0, 400);
+        gradient.addColorStop(0, 'rgba(59, 130, 246, 0.3)'); 
+        gradient.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+        
+        const waveformChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: [], datasets: [{ label: 'Thermal', data: [], borderColor: '#3b82f6', borderWidth: 3, pointRadius: 0, tension: 0.4, fill: true, backgroundColor: gradient }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: {enabled: false} }, scales: { x: { display: false }, y: { min: 30, max: 45, grid: { color: 'rgba(255,255,255,0.05)', borderDash: [5, 5] }, ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 10 } } } }, layout: { padding: 0 } }
+        });
+
+        // 🔥 AUTO-LOGIN LOGIC 🔥
+        if(PORTAL_ID) { 
+            document.getElementById('node-id-input').value = PORTAL_ID; 
+            executeHandshake(); // Use stored ID automatically
+        }
+
+        async function executeHandshake() {
+            const id = document.getElementById('node-id-input').value.trim().toUpperCase();
+            if(!id) return;
+            const btn = document.getElementById('auth-btn');
+            btn.innerText = "VERIFYING...";
+            try {
+                const res = await fetch(`${SERVER_URL}/patient/auth/handshake`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ node_id: id })
+                });
+                if(res.ok) {
+                    const data = await res.json();
+                    PORTAL_ID = id;
+                    localStorage.setItem('zhopingo_node_id', id); // SAVE ID TO LOCAL STORAGE
+                    document.getElementById('secure-handshake-guard').style.display = 'none';
+                    document.getElementById('portal-app').classList.remove('hidden');
+                    setTimeout(()=> document.getElementById('portal-app').style.opacity = 1, 100);
+                    
+                    document.getElementById('disp-name').innerText = data.patient_name;
+                    document.getElementById('disp-id').innerText = `ID: ${PORTAL_ID}`;
+                    
+                    startTelemetryStream();
+                    syncVaultData();
+                } else throw new Error("DENIED");
+            } catch (e) { 
+                document.getElementById('handshake-err').classList.remove('hidden'); 
+                btn.innerText = "AUTHENTICATE";
+            }
+        }
+
+        // 🔥 LOGOUT LOGIC 🔥
+        function logoutNode() {
+            // 1. Clear Local Storage
+            localStorage.removeItem('zhopingo_node_id');
+            PORTAL_ID = null;
+            
+            // 2. Stop API Polling
+            if(pollingInterval) clearInterval(pollingInterval);
+            
+            // 3. Clear existing UI values
+            document.getElementById('v-temp').innerText = "--.-";
+            document.getElementById('v-hr').innerText = "0";
+            document.getElementById('v-accel').innerText = "-.--";
+            waveformChart.data.labels = [];
+            waveformChart.data.datasets[0].data = [];
+            waveformChart.update();
+            
+            // 4. Hide Main App & Show Login Screen
+            document.getElementById('portal-app').style.opacity = 0;
+            setTimeout(() => {
+                document.getElementById('portal-app').classList.add('hidden');
+                document.getElementById('secure-handshake-guard').style.display = 'flex';
+                document.getElementById('auth-btn').innerText = "Authenticate";
+                document.getElementById('node-id-input').value = ""; // Clear input field
+                document.getElementById('handshake-err').classList.add('hidden');
+            }, 500);
+        }
+
+        function startTelemetryStream() {
+            pollingInterval = setInterval(async () => {
+                if(!PORTAL_ID) return; // Don't poll if logged out
+                try {
+                    const res = await fetch(`${SERVER_URL}/doctor/dashboard?doc_id=D001`);
+                    const data = await res.json();
+                    const me = data.patients.find(x => x.patient_info.id === PORTAL_ID);
+                    
+                    if (me) {
+                        const snap = me.vital_snapshot;
+                        if(snap) {
+                            document.getElementById('v-temp').innerText = snap.temp.toFixed(1);
+                            document.getElementById('v-hr').innerText = snap.hr.toFixed(0);
+                            document.getElementById('v-accel').innerText = snap.accel.toFixed(2);
+                            
+                            document.getElementById('bar-temp').style.width = `${Math.min(Math.max(((snap.temp-30)/15)*100, 0), 100)}%`;
+                            document.getElementById('bar-hr').style.width = `${Math.min(Math.max(((snap.hr-40)/120)*100, 0), 100)}%`;
+                            document.getElementById('bar-accel').style.width = `${Math.min(Math.max(((snap.accel)/5)*100, 0), 100)}%`;
+
+                            if (waveformChart.data.labels.length > 40) {
+                                waveformChart.data.labels.shift(); 
+                                waveformChart.data.datasets[0].data.shift();
+                            }
+                            waveformChart.data.labels.push(""); 
+                            waveformChart.data.datasets[0].data.push(snap.temp);
+                            waveformChart.update('none');
+                        }
+                        
+                        runAICoach(me.ai_instructions);
+                        
+                        const badge = document.getElementById('risk-badge');
+                        const videoBtn = document.getElementById('video-call-btn');
+
+                        // 🔥 EMERGENCY CRITICAL OVERRIDE FOR VIDEO CALL 🔥
+                        if(me.risk_status === "CRITICAL") {
+                            isCriticalEmergency = true; 
+                            badge.innerText = "CRITICAL BREACH";
+                            badge.className = "bg-red-100 text-red-700 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border border-red-200";
+                            document.getElementById('portal-root').classList.add('emergency-active');
+                            
+                            videoBtn.classList.remove('opacity-50', 'cursor-not-allowed', 'bg-white', 'text-slate-800');
+                            videoBtn.classList.add('bg-red-600', 'text-white', 'animate-pulse', 'border-red-600');
+                            videoBtn.innerHTML = `<i data-lucide="siren" class="w-4 h-4 text-white"></i> Emergency Call`;
+                            lucide.createIcons();
+
+                        } else {
+                            isCriticalEmergency = false; 
+                            badge.innerText = "Optimal";
+                            badge.className = "bg-green-100 text-green-700 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border border-green-200";
+                            document.getElementById('portal-root').classList.remove('emergency-active');
+                            
+                            videoBtn.classList.remove('bg-red-600', 'text-white', 'animate-pulse', 'border-red-600');
+                            videoBtn.classList.add('bg-white', 'text-slate-800');
+                        }
+
+                        const signals = data.active_signals || {};
+                        const callState = signals[PORTAL_ID]; 
+
+                        if (callState) {
+                            if (callState === 'RINGING' && !isCalling && !isCallActive && !incomingCallState) {
+                                incomingCallState = true;
+                                document.getElementById('call-toast').classList.add('show');
+                            } 
+                            else if (callState === 'CONNECTED' && isCalling && !isCallActive) {
+                                document.getElementById('ringing-ui-out').classList.add('hidden');
+                                startCamera();
+                                isCallActive = true;
+                            }
+                        } else {
+                            if (incomingCallState) {
+                                document.getElementById('call-toast').classList.remove('show');
+                                incomingCallState = false;
+                            }
+                            if (isCallActive || isCalling) endCallLocal();
+                        }
+                    }
+                } catch(e) {}
+            }, 3000);
+        }
+
+        function runAICoach(ai_data) {
+            if(!ai_data) return;
+            
+            const actionList = document.getElementById('ai-action-list');
+            const dietList = document.getElementById('ai-diet-list');
+            
+            let actions = ai_data.action || [];
+            let warnings = ai_data.warning || [];
+            let diets = ai_data.diet || [];
+            let clinicals = ai_data.clinical || [];
+
+            let allActions = [...warnings, ...actions, ...clinicals];
+
+            if(warnings.length > 0) {
+                document.getElementById('ai-action-headline').innerText = "Action Required";
+                document.getElementById('ai-action-headline').className = "text-base md:text-lg font-black text-red-900 tracking-tight";
+                document.getElementById('ai-action-bg').className = "flex-1 bg-red-50/50 border border-red-100 rounded-2xl p-5 md:p-6 transition-colors duration-300";
+            } else {
+                document.getElementById('ai-action-headline').innerText = "System Optimal";
+                document.getElementById('ai-action-headline').className = "text-base md:text-lg font-black text-blue-900 tracking-tight";
+                document.getElementById('ai-action-bg').className = "flex-1 bg-blue-50/50 border border-blue-100/50 rounded-2xl p-5 md:p-6 transition-colors duration-300";
+            }
+
+            actionList.innerHTML = allActions.map(txt => `
+                <li class="flex items-start gap-3">
+                    <i data-lucide="check-circle-2" class="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5 opacity-70"></i>
+                    <span class="text-slate-700 font-semibold text-xs md:text-sm leading-relaxed">${txt}</span>
+                </li>
+            `).join('') || "<li>Monitor vitals.</li>";
+
+            dietList.innerHTML = diets.map(txt => `
+                <li class="flex items-start gap-3">
+                    <i data-lucide="apple" class="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5 opacity-70"></i>
+                    <span class="text-slate-700 font-semibold text-xs md:text-sm leading-relaxed">${txt}</span>
+                </li>
+            `).join('') || "<li>Standard hydration protocol.</li>";
+            
+            lucide.createIcons();
+        }
+
+        function syncVaultData() {
+            setInterval(async () => {
+                if(!PORTAL_ID) return; // Prevents checking vault if logged out
+                try {
+                    const vaultRes = await fetch(`${SERVER_URL}/patient/vault/sync?node_id=${PORTAL_ID}`);
+                    if(!vaultRes.ok) return;
+                    const vault = await vaultRes.json();
+                    
+                    if(vault.chat_history.length > lastChatCount) {
+                        const box = document.getElementById('chat-stream');
+                        const isAtBottom = box.scrollHeight - box.scrollTop <= box.clientHeight + 50;
+
+                        box.innerHTML = vault.chat_history.map(m => `
+                            <div class="msg-bubble ${m.sender === 'Patient' ? 'msg-pt' : 'msg-dr'} shadow-sm">
+                                ${m.text} <span class="block text-[9px] opacity-60 mt-1 ${m.sender === 'Patient' ? 'text-right text-blue-200' : 'text-left text-slate-400'} font-black uppercase">${m.time}</span>
+                            </div>`).join('');
+                        
+                        lastChatCount = vault.chat_history.length;
+                        if(isAtBottom) box.scrollTop = box.scrollHeight;
+                        
+                        if(document.getElementById('clinical-chat-widget').classList.contains('chat-hidden')) {
+                            document.getElementById('chat-badge').classList.remove('hidden');
+                        }
+                    }
+                    
+                    if (vault.active_notifications && vault.active_notifications.length > 0) {
+                        document.getElementById('prescription-pnl').classList.remove('hidden');
+                    } else {
+                        document.getElementById('prescription-pnl').classList.add('hidden');
+                    }
+
+                    if (vault.medical_records && vault.medical_records.length > 0) {
+                        localMedicalRecords = vault.medical_records; 
+                        
+                        let rows = "";
+                        vault.medical_records.forEach((rec, index) => {
+                            const isCrit = rec.condition.includes("Critical");
+                            rows += `
+                                <tr onclick="viewRawText(${index})">
+                                    <td class="font-mono text-[10px] text-slate-500">${rec.date}</td>
+                                    <td class="text-blue-600 font-bold truncate max-w-[100px]">${rec.filename}</td>
+                                    <td class="font-mono font-bold text-slate-700">${rec.temp}°C | ${rec.hr} BPM | ${rec.bp} | ${rec.spo2}</td>
+                                    <td><span class="${isCrit ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'} px-2 py-1 rounded font-black text-[9px] uppercase">${rec.condition}</span></td>
+                                    <td class="font-bold text-slate-600 text-[11px]">${rec.checkup_freq}</td>
+                                    <td class="text-green-600 font-bold font-mono text-[10px]">${rec.scheduled_call}</td>
+                                </tr>
+                            `;
+                        });
+                        document.getElementById('history-record-tbody').innerHTML = rows;
+                        document.getElementById('history-badge').innerText = "AI Auto-Synced";
+                        document.getElementById('history-badge').className = "bg-green-100 text-green-700 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest";
+
+                        // Normal Video Call Button Lock Mechanism 
+                        if (!isCriticalEmergency) {
+                            const latestRecord = vault.medical_records[vault.medical_records.length - 1];
+                            let timeStr = latestRecord.scheduled_call.replace(/-/g, ' '); 
+                            if (!timeStr.match(/\d{4}/)) {
+                                let parts = timeStr.split(' ');
+                                if(parts.length >= 3) {
+                                    timeStr = `${parts[0]} ${parts[1]} ${new Date().getFullYear()} ${parts[2]}`;
+                                } else {
+                                    timeStr = `${timeStr} ${new Date().getFullYear()}`;
+                                }
+                            }
+                            
+                            let schedDate = new Date(timeStr);
+                            if (isNaN(schedDate.getTime())) {
+                                schedDate = new Date();
+                                schedDate.setHours(schedDate.getHours() + 24); 
+                            }
+                            
+                            const currentTime = new Date();
+                            const videoBtn = document.getElementById('video-call-btn');
+
+                            if (videoBtn && latestRecord.scheduled_call) {
+                                scheduledCallText = latestRecord.scheduled_call;
+                                
+                                if (currentTime >= schedDate) {
+                                    isVideoCallLocked = false;
+                                    videoBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                                    videoBtn.classList.add('active:bg-slate-50', 'hover:-translate-y-1');
+                                    videoBtn.innerHTML = `<i data-lucide="video" class="w-4 h-4 text-blue-600"></i> Request Video`;
+                                } else {
+                                    isVideoCallLocked = true;
+                                    videoBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                                    videoBtn.classList.remove('active:bg-slate-50', 'hover:-translate-y-1');
+                                    videoBtn.innerHTML = `<i data-lucide="clock" class="w-4 h-4 text-slate-400"></i> Sched: ${latestRecord.scheduled_call}`;
+                                }
+                                lucide.createIcons();
+                            }
+                        }
+                    }
+
+                } catch(e) {}
+            }, 5000);
+        }
+
+        function viewRawText(index) {
+            const rec = localMedicalRecords[index];
+            if(!rec) return;
+            document.getElementById('history-raw-text').innerText = rec.extracted_text;
+            document.getElementById('history-expanded-view').classList.remove('hidden');
+        }
+
+        function toggleChat() { 
+            const w = document.getElementById('clinical-chat-widget');
+            if(w.classList.contains('chat-hidden')) {
+                w.classList.remove('chat-hidden'); w.classList.add('chat-visible');
+                document.getElementById('chat-badge').classList.add('hidden');
+                
+                const box = document.getElementById('chat-stream');
+                setTimeout(() => box.scrollTop = box.scrollHeight, 100); 
+            } else {
+                w.classList.remove('chat-visible'); w.classList.add('chat-hidden');
+            }
+        }
+
+        async function sendMsg() {
+            const i = document.getElementById('chat-msg-input');
+            const text = i.value.trim();
+            if(!text) return;
+            i.value = "";
+            const box = document.getElementById('chat-stream');
+            box.innerHTML += `<div class="msg-bubble msg-pt opacity-50">${text}</div>`;
+            box.scrollTop = box.scrollHeight;
+            await fetch(`${SERVER_URL}/patient/chat/send`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ node_id: PORTAL_ID, message: text }) });
+        }
+
+        async function triggerRxDownload() {
+            window.open(`${SERVER_URL}/patient/prescription/download?node_id=${PORTAL_ID}`, '_blank');
+            await fetch(`${SERVER_URL}/patient/clear-notifs`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ p_id: PORTAL_ID }) });
+            document.getElementById('prescription-pnl').classList.add('hidden');
+        }
+
+        // 🔥 CRITICAL OVERRIDE FOR MANUAL CALL 🔥
+        function triggerManualCall() {
+            if (isVideoCallLocked && !isCriticalEmergency) {
+                alert("ACCESS DENIED: Not allowed at this time.\n\nYour video consultation is strictly locked until: " + scheduledCallText + "\n\nPlease wait until this exact time.");
+                return;
+            }
+            
+            isCalling = true;
+            document.getElementById('video-overlay').style.display = 'flex';
+            document.getElementById('ringing-ui-out').classList.remove('hidden');
+            fetch(`${SERVER_URL}/video/signal`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ patient_id: PORTAL_ID, action: 'CALL' }) });
+        }
+        
+        async function acceptCall() {
+            document.getElementById('call-toast').classList.remove('show');
+            document.getElementById('video-overlay').style.display = 'flex';
+            isCallActive = true;
+            
+            startCamera();
+            
+            await fetch(`${SERVER_URL}/video/signal`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ patient_id: PORTAL_ID, action: 'ACCEPT' }) });
+        }
+        
+        async function rejectCall() {
+            document.getElementById('call-toast').classList.remove('show');
+            await fetch(`${SERVER_URL}/video/signal`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ patient_id: PORTAL_ID, action: 'END' }) });
+        }
+        
+        async function startCamera() {
+            const box = document.getElementById('cam-view');
+            box.innerHTML = ''; 
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                const video = document.createElement('video');
+                video.autoplay = true; 
+                video.srcObject = stream;
+                video.className = "w-full h-full object-cover absolute inset-0 z-10 rounded-2xl";
+                document.getElementById('cam-placeholder').style.display = 'none';
+                box.appendChild(video);
+            } catch(e) { 
+                box.innerHTML = `<div class="text-white text-center font-bold bg-red-900/80 p-6 rounded-2xl border border-red-500 z-30 relative mx-4">HARDWARE BLOCKED</div>`; 
+            }
+        }
+        
+        function endCallLocal() {
+            document.getElementById('video-overlay').style.display = 'none';
+            isCallActive = false; isCalling = false; incomingCallState = false;
+            
+            const video = document.querySelector('#cam-view video');
+            if(video && video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
+            document.getElementById('cam-view').innerHTML = ``;
+            document.getElementById('cam-placeholder').style.display = 'block';
+            
+            document.getElementById('ringing-ui-out').classList.add('hidden');
+                
+            fetch(`${SERVER_URL}/video/signal`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ patient_id: PORTAL_ID, action: 'END' }) });
+        }
+    </script>
+</body>
+</html>
